@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Jasper</title>
+<script type="text/javascript">
+
+class Ui {
+
+  constructor() {
+    this.reader = document.getElementById('reader');
+    this.progress = document.getElementById('progress');
+    this.control = document.getElementById('control');
+    this.src = document.getElementById('src');
+    this.wpm = document.getElementById('wpm');
+    this.chunksize = document.getElementById('chunksize');
+    this.textsize = document.getElementById('textsize');
+    this.serif = document.getElementById('serif');
+    this.pause = document.getElementById('pause');
+    this.help = document.getElementById('help');
+    this.helptext = document.getElementById('helptext');
+
+    this.src.onfocus = this.srcSetFocusFlag;
+  }
+
+  srcSetFocusFlag() {
+    srcHadFocus = true;
+  }
+
+  setControlBackground() {
+    this.control.style.backgroundColor = 'lightblue';
+  }
+
+  getSrc() {
+    return this.src.value;
+  }
+
+  getMinInt(n, v) {
+    if (isNaN(n)) return v;
+    return (n <= v) ? v : n;
+  }
+
+  getWpm() {
+    var n = parseInt(this.wpm.value);
+    return this.getMinInt(n, 20);
+  }
+
+  setWpm(n) {
+    this.wpm.value = n;
+  }
+
+  getTextsize() {
+    var n = parseInt(this.textsize.value);
+    return this.getMinInt(n, 10);
+  }
+
+  setTextsize(n) {
+    this.textsize.value = n;
+  }
+
+  getChunksize() {
+    var n = parseInt(this.chunksize.value);
+    return this.getMinInt(n, 1);
+  }
+
+  setChunksize(n) {
+    this.chunksize.value = n;
+  }
+
+  isPauseChecked() {
+    return this.pause.checked;
+  }
+
+  isSerifChecked() {
+    return this.serif.checked;
+  }
+
+  setSerif(n) {
+    this.serif.checked = (n == 1) ? true : false;
+  }
+
+  setPause(n) {
+    this.pause.checked = (n == 1) ? true : false;
+  }
+
+  setProgress(pct) {
+    if (pct < 0) pct = 0;
+    if (pct > 1) pct = 1;
+    var pctStr = (pct * 100).toFixed(2);
+    this.progress.style.width = pctStr + "%";
+  }
+
+  setReaderText(txt) {
+    this.reader.innerText = txt;
+  }
+
+  setReaderFontsize(n) {
+    if (n < 10) n = 10;
+    this.reader.style.fontSize = n + 'px';
+  }
+
+  setReaderFontfamily(fam) {
+    this.reader.style.fontFamily = fam;
+  }
+
+  setReaderFontSerif() {
+    this.setReaderFontfamily('serif');
+  }
+
+  setReaderFontSansSerif() {
+    this.setReaderFontfamily('sans-serif');
+  }
+
+  setWpmHandler(handler) {
+    this.wpm.onkeydown = handler;
+  }
+
+  setTextsizeHandler(handler) {
+    this.textsize.onkeydown = handler;
+  }
+
+  setChunksizeHandler(handler) {
+    this.chunksize.onkeydown = handler;
+  }
+
+  setSerifHandler(handler) {
+    this.serif.onclick = handler;
+  }
+
+  setControlHandler(handler) {
+    this.control.onkeydown = handler;
+  }
+
+  setHelpHandler(handler) {
+    this.help.onclick = handler;
+  }
+
+  toggleHelpText() {
+    var display = getComputedStyle(this.helptext).display;
+    this.helptext.style.display = (display == 'none') ? 'block' : 'none';
+  }
+
+}
+
+var ARROW_LEFT  = '37';
+var ARROW_UP    = '38';
+var ARROW_RIGHT = '39';
+var ARROW_DOWN  = '40';
+var TAB         = '9';
+
+var START_TEXT = "Jasper";
+var DONE_TEXT = "--------";
+var ONE_MINUTE = 60 * 1000;
+
+var ui;
+
+var timerId = null;
+var srcHadFocus = false;
+
+var words = [];
+var ndx = 0;
+
+var wordsPerMinute = 200;
+var chunksize = 1;
+var textSize = 40;
+
+
+function setVal(uu, str) {
+  var pair = str.split('=');
+  var name = pair[0].toLowerCase();
+  var value = pair[1];
+  if (name == 'wpm') {
+    uu.setWpm(value);
+  } else if (name == 'textsize') {
+    uu.setTextsize(value);
+  } else if (name == 'chunksize') {
+    uu.setChunksize(value);
+  } else if (name == 'serif') {
+    uu.setSerif(value);
+  } else if (name == 'pause') {
+    uu.setPause(value);
+  }
+}
+
+function parseQueryParams(uu) {
+  var str = window.location.search;
+  if (str.length > 0) {
+    var query = str.substring(1);
+    if (query.length > 0) {
+      var vars = query.split('&');
+      for (var i = 0; i < vars.length; i++) {
+        setVal(uu, vars[i]);
+      }
+    }
+  }
+}
+
+function getSrcCursorPos() {
+  var pos = 0;
+  if ('selectionStart' in ui.src) {
+     pos = ui.src.selectionStart;
+  } else if ('selection' in document) {
+     ui.src.focus();
+     var sel = document.selection.createRange();
+     var selLength = sel.text.length;
+     sel.moveStart('character', -ui.getSrc().length);
+     pos = sel.text.length - selLength;
+  }
+  return pos;
+}
+
+function isWhitespace(ch) {
+  return /\s/.test(ch);
+}
+
+function getSrcWordBoundPos() {
+  var text = ui.getSrc();
+  var pos = getSrcCursorPos();
+  if (pos >= text.replace(/\s+$/g, '').length) {
+    return 0;
+  }
+  if (isWhitespace(text[pos])) {
+    while (pos < text.length-1 && isWhitespace(text[pos])) {
+      pos++;
+    }
+  } else {
+    while (pos > 0 && !isWhitespace(text[pos])) {
+      pos--;
+    }
+  }
+  return pos;
+}
+
+function calcDelay() {
+  var cs = ui.getChunksize();
+  var delay = ONE_MINUTE * cs / ui.getWpm();
+  var extraDelay = 0;
+  if (ui.isPauseChecked() && (cs == 1) && (words.length > 0)) {
+    var n = (ndx <= 0) ? 0 : ndx - 1;
+    var word = words[n];
+    if (word.endsWith('.') || word.endsWith(',')) {
+      extraDelay = delay;
+    }
+  }
+  return delay + extraDelay;
+}
+
+function showPhrase() {
+  ui.setProgress(ndx / words.length);
+  var endNdx = ndx + ui.getChunksize();
+  if (endNdx >= words.length) endNdx = words.length;
+  var phrase = words.slice(ndx, endNdx).join(' ');
+  ndx = endNdx;
+
+  if (phrase.length == 0) {
+    stop();
+    ui.setReaderText(DONE_TEXT);
+    return false;
+  }
+
+  ui.setReaderText(phrase);
+  return true;
+}
+
+function looper() {
+  if (showPhrase()) {
+    timerId = setTimeout(looper, calcDelay());
+  }
+}
+
+function splitText(text) {
+  var t = text.trim();
+  return (t.length == 0) ? [] : t.split(/\s+/);
+}
+
+function checkFocus() {
+  if (srcHadFocus) {
+    var text = ui.getSrc();
+    var prewords = splitText(text.substring(0, getSrcWordBoundPos()));
+    ndx = prewords.length;
+    words = splitText(text);
+    ui.setProgress((words.length > 0) ? (ndx / words.length) : 0);
+    ui.setReaderText(START_TEXT);
+    srcHadFocus = false;
+  }
+}
+
+function start() {
+  if (timerId == null) {
+    checkFocus();
+    looper();
+  }
+}
+
+function stop() {
+  clearTimeout(timerId);
+  timerId = null;
+}
+
+function wpmKeydown(e) {
+  e = e || window.event;
+  if (e.keyCode == ARROW_UP) {
+      var wpm = ui.getWpm();
+      wpm += 10;
+      ui.setWpm(wpm);
+  } else if (e.keyCode == ARROW_DOWN) {
+      var wpm = ui.getWpm();
+      wpm -= 10;
+      if (wpm >= 20) {
+        ui.setWpm(wpm);
+      }
+  }
+}
+
+function textsizeKeydown(e) {
+  e = e || window.event;
+  if (e.keyCode == ARROW_UP) {
+      var sz = ui.getTextsize();
+      sz++;
+      ui.setTextsize(sz);
+      ui.setReaderFontsize(sz)
+  }
+  else if (e.keyCode == ARROW_DOWN) {
+      var sz = ui.getTextsize();
+      sz--;
+      if (sz >= 10) {
+        ui.setTextsize(sz);
+        ui.setReaderFontsize(sz);
+      }
+  }
+}
+
+function chunksizeKeydown(e) {
+  e = e || window.event;
+  if (e.keyCode == ARROW_UP) {
+      var sz = ui.getChunksize();
+      sz++;
+      ui.setChunksize(sz)
+  } else if (e.keyCode == ARROW_DOWN) {
+      var sz = ui.getChunksize();
+      sz--;
+      if (sz >= 1) {
+        ui.setChunksize(sz)
+      }
+  }
+}
+
+function controlKeydown(e) {
+  e = e || window.event;
+  if (e.keyCode == ARROW_UP) {
+    if (timerId == null) {
+      start();
+    } else {
+      stop();
+    }
+  } else if (e.keyCode == ARROW_LEFT) {
+    ndx -= (ui.getChunksize() * 5);
+    if (ndx < 0) { ndx = 0; }
+    showPhrase();
+  } else if (e.keyCode == ARROW_RIGHT) {
+    ndx += (ui.getChunksize() * 3);
+    if (ndx >= words.length) { ndx = words.length - 1; }
+    showPhrase();
+  }
+  return (e.keyCode == TAB);
+}
+
+function serifClick() {
+  if (ui.isSerifChecked()) {
+    ui.setReaderFontSerif();
+  } else {
+    ui.setReaderFontSansSerif();
+  }
+}
+
+function helpClick() {
+  ui.toggleHelpText();
+}
+
+function init() {
+  ui = new Ui();
+
+  ui.setWpm(wordsPerMinute);
+  ui.setChunksize(chunksize);
+  ui.setTextsize(textSize);
+  ui.setReaderFontsize(textSize);
+  ui.setReaderText(START_TEXT);
+
+  ui.setSerifHandler(serifClick);
+  ui.setWpmHandler(wpmKeydown);
+  ui.setTextsizeHandler(textsizeKeydown);
+  ui.setChunksizeHandler(chunksizeKeydown);
+  ui.setControlHandler(controlKeydown);
+  ui.setHelpHandler(helpClick);
+
+  parseQueryParams(ui);
+}
+</script>
+<style type="text/css">
+#reader {
+  text-align: center;
+  color: dark-gray;
+  background-color: gray;
+}
+#src {
+  width: 80%;
+  margin: auto auto;
+  display: block;
+  background-color: lightgray;
+  margin-bottom: 1em;
+}
+html {
+  background-color: lightgray;
+  font-family: 'sans-serif';
+}
+#srctitle {
+  text-align: center;
+}
+#progress {
+  height: 3px;
+  background-color: lightgreen;
+  width: 0%;
+  border: 1px solid black;
+  margin-bottom: 2em;
+}
+.inp {
+  width: 4em;
+}
+#helptext {
+  width: 80%;
+  border: 1px solid black;
+  padding: 1em;
+  margin: auto auto;
+  display: none;
+}
+#helptext > div {
+  margin-bottom: 1em;
+}
+.title {
+  text-align: center;
+  font-weight: bold;
+}
+.field {
+  font-weight: bold;
+}
+.key {
+  font-style: italic;
+}
+noscript {
+  background-color: red;
+  text-align: center;
+  display: block;
+}
+</style>
+</head>
+<body onload='init()'>
+  <noscript>
+    Javascript must be enabled for this page to work.
+  </noscript>
+
+  <div id='reader'></div>
+  <div id='progress'></div>
+  <div id='srctitle'>Source Text</div>
+  <textarea rows=15 id='src'></textarea>
+  <div><input id='control'> Control</div>
+  <div><input id='wpm' class='inp'> Words Per Minute</div>
+  <div><input id='chunksize' class='inp'> Chunksize</div>
+  <div><input id='textsize' class='inp'> Textsize</div>
+  <div><input type='checkbox' id='serif'> Use Serif Font</div>
+  <div><input type='checkbox' id='pause'> Pause after period or comma</div>
+  <div><button id='help'>Help</button></div>
+  <div id='helptext'>
+    <div class='title'>Jasper (Just Another Speed Reader)</div>
+    <div>
+      <div>Usage:</div>
+      <ol>
+        <li>Type or paste text into the <span class='field'>Source Text</span> area.
+        <li>Move cursor to the <span class='field'>Control</span> field (e.g. press <span class='key'>Tab</span>).
+        <li>Press <span class='key'>ArrowUp</span> to toggle start/stop.
+        <li>Press <span class='key'>ArrowRight</span> to skip forward.
+        <li>Press <span class='key'>ArrowLeft</span> to skip back.
+      </ol>
+    </div>
+    <div>Fields:</div>
+    <div>
+      <ul>
+        <li><span class='field'>Words Per Minute</span>: Rate at which words are displayed.
+        <li><span class='field'>Chunksize</span>: Number of words in a chunk.
+        <li><span class='field'>Textsize</span>: Height of the displayed text.
+        <li><span class='field'>Use Serif Font</span>: Display text using a serif font.
+        <li><span class='field'>Pause after period or comma</span>: Briefly pause after a period or comma; only relevant when <span class='field'>Chunksize</span> is 1.
+        <li><span class='field'>Help</span>: Toggle visibility of this help text.
+      </ul>
+    </div>
+    <div>
+      When <span class='field'>Words Per Minute</span>, <span class='field'>Chunksize</span>,
+      or <span class='field'>Textsize</span> has focus, pressing <span class='key'>ArrowUp</span>
+      will increase the value, pressing <span class='key'>ArrowDown</span> will decrease the value.
+      Fields can be modified even after speed-reading has started. Invalid values are ignored.
+    </div>
+    <div>
+      When speed-reading is stopped, clicking anywhere in the <span class='field'>Source Text</span>
+      will set the position at which speed-reading will commence. When the cursor is positioned
+      after the last word in <span class='field'>Source Text</span>, the starting point is set to
+      the start of the text.
+    </div>
+    <div>
+      If you know about HTML query parameters, you can set the field values at startup
+      using: <tt>jasper.html?wpm=300&amp;chunksize=2&amp;textsize=35&amp;serif=1&amp;pause=1</tt>
+    </div>
+    <div>
+      If interested, you may wish to try other Javascript speed readers such as
+      <a href='https://www.fsavard.com/code/speedread/'>Faster!</a> and
+      <a href='https://github.com/royha/jsreader'>JSReader</a>.
+    </div>
+  </div>
+</body>
+</html>
