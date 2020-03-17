@@ -246,7 +246,7 @@ function calcDelay() {
 }
 
 function showPhrase() {
-  ui.setProgress(ndx / words.length);
+  ui.setProgress(ndx / (words.length - 1));
   var endNdx = ndx + ui.getChunksize();
   if (endNdx >= words.length) endNdx = words.length;
   var phrase = words.slice(ndx, endNdx).join(' ');
@@ -279,7 +279,7 @@ function checkFocus() {
     var prewords = splitText(text.substring(0, getSrcWordBoundPos()));
     ndx = prewords.length;
     words = splitText(text);
-    ui.setProgress((words.length > 0) ? (ndx / words.length) : 0);
+    ui.setProgress((words.length > 0) ? (ndx / (words.length - 1)) : 0);
     ui.setReaderText(START_TEXT);
     srcHadFocus = false;
   }
