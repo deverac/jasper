@@ -1,5 +1,7 @@
 ### Jasper (Just Another Speed Reader)
 
+Try it out [online](https://deverac.github.io/jasper/).
+
 Usage:
 1. Type or paste text into the __Source Text__ area.
 1. Move cursor to the __Control__ field (e.g. press _Tab_).
